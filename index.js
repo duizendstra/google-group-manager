@@ -51,6 +51,8 @@ function googleGroupManager(specs) {
         var groupEmail = specs.groupEmail;
         var memberSet = {
             "kind": "admin#directory#members",
+            "domainAccess": false,
+            "hasNested": false,
             members: []
         };
 
@@ -73,8 +75,15 @@ function googleGroupManager(specs) {
                         resolve(memberSet);
                         return;
                     }
-                    members.forEach(function (group) {
-                        memberSet.members.push([members]);
+                    members.forEach(function (member) {
+                        if (member.type === "CUSTOMER") {
+                            memberSet.domainAccess = true;
+                        }
+                        if (member.type === "GROUP") {
+                            memberSet.hasNested = true;
+                        }
+                        console.log(member);
+                        memberSet.members.push([member]);
                     });
                     if (!response.nextPageToken) {
                         resolve(memberSet);
