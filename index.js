@@ -15,7 +15,7 @@ function googleGroupManager(specs) {
             function listGroups(pageToken) {
                 service.groups.list({
                     auth: auth,
-                    fields: "nextPageToken, groups/name, groups/email",
+                    fields: "nextPageToken, groups/name, groups/email, groups/adminCreated",
                     customer: 'my_customer',
                     maxResults: 250,
                     pageToken: pageToken
@@ -26,21 +26,19 @@ function googleGroupManager(specs) {
                     }
                     var groups = response.groups;
 
+
                     if (groups.length === 0) {
                         resolve(groupsSet);
                         return;
                     }
                     groups.forEach(function (group) {
-                        groupsSet.groups.push([{
-                            name: group.name,
-                            emal: group.email
-                        }]);
+                        groupsSet.groups.push(group);
                     });
                     if (!response.nextPageToken) {
                         resolve(groupsSet);
                         return;
                     }
-                    getGroups(response.nextPageToken);
+                    listGroups(response.nextPageToken);
                 });
             }
             listGroups();
@@ -48,12 +46,14 @@ function googleGroupManager(specs) {
     }
 
     function getGroupMembers(specs) {
-        var groupEmail = specs.groupEmail;
+        var groupEmail = specs.email;
+        var returnJson = specs.returnJson;
         var memberSet = {
             "kind": "admin#directory#members",
             "domainAccess": false,
             "hasNested": false,
-            members: []
+            members: [],
+            membersJson: {}
         };
 
         return new Promise(function (resolve, reject) {
@@ -66,12 +66,11 @@ function googleGroupManager(specs) {
                     pageToken: pageToken
                 }, function (err, response) {
                     if (err) {
-                        console.log('The API returned an error: ' + err);
+                        console.log('The listGroupMembers API returned an error: ' + groupEmail + " " + err);
                         return;
                     }
                     var members = response.members;
-
-                    if (members.length === 0) {
+                    if (!members || members.length === 0) {
                         resolve(memberSet);
                         return;
                     }
@@ -82,14 +81,16 @@ function googleGroupManager(specs) {
                         if (member.type === "GROUP") {
                             memberSet.hasNested = true;
                         }
-                        console.log(member);
-                        memberSet.members.push([member]);
+                        memberSet.members.push(member);
+                        if (returnJson) {
+                            memberSet.membersJson[member.email] = member;
+                        }
                     });
                     if (!response.nextPageToken) {
                         resolve(memberSet);
                         return;
                     }
-                    getGroupMembers(response.nextPageToken);
+                    listGroupMembers(response.nextPageToken);
                 });
             }
             listGroupMembers();
@@ -103,6 +104,4 @@ function googleGroupManager(specs) {
     };
 }
 
-module.exports = {
-    googleGroupManager: googleGroupManager
-};
+module.exports = googleGroupManager;
