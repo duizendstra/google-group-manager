@@ -65,13 +65,15 @@ function googleGroupManager(mainSpecs) {
                         groupKey: email,
                         auth: auth,
                         fields: "nextPageToken, members",
-                        maxResults: 1,
+                        maxResults: 250,
                         pageToken: pageToken
                     }, function (err, response) {
                         if (err) {
                             reject('The groups API returned an error: ' + err);
                             return;
                         }
+
+                        response.members = response.members || [];
 
                         response.members.forEach(function (member) {
                             if (member.type === "CUSTOMER") {
@@ -83,6 +85,7 @@ function googleGroupManager(mainSpecs) {
 
                         if (response.members.length === 0 || response.nextPageToken === undefined) {
                             members.forEach(function (member, index) {
+                                member.direct = true;
                                 memberSet.directMembers.push(member);
                                 memberSet.directMembersIndex[member.email] = index;
                                 if (memberSet.allMembersIndex[member.email] === undefined) {
@@ -120,6 +123,7 @@ function googleGroupManager(mainSpecs) {
                                 item.group = result;
                                 item.group.directMembers.forEach(function (member) {
                                     if (memberSet.allMembersIndex[member.email] === undefined) {
+                                        member.direct = true;
                                         memberSet.allMembersIndex[member.email] = memberSet.allMembers.length;
                                         memberSet.allMembers.push(member);
                                     }
