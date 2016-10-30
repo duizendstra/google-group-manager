@@ -1,6 +1,6 @@
 var google = require('googleapis');
 
-function googleGroupManager(specs) {
+function googleGroupManager(mainSpecs) {
     "use strict";
     var auth;
     var service = google.admin('directory_v1');
@@ -26,7 +26,6 @@ function googleGroupManager(specs) {
                     }
                     var groups = response.groups;
 
-
                     if (groups.length === 0) {
                         resolve(groupsSet);
                         return;
@@ -47,57 +46,107 @@ function googleGroupManager(specs) {
 
     function getGroupMembers(specs) {
         var groupEmail = specs.email;
-        var returnJson = specs.returnJson;
         var memberSet = {
             "kind": "admin#directory#members",
             "domainAccess": false,
             "hasNested": false,
-            members: [],
-            membersJson: {}
+            directMembers: [],
+            directMembersIndex: {},
+            allMembers: [],
+            allMembersIndex: {}
         };
 
-        return new Promise(function (resolve, reject) {
-            function listGroupMembers(pageToken) {
-                service.members.list({
-                    groupKey: groupEmail,
-                    auth: auth,
-                    fields: "nextPageToken, members",
-                    maxResults: 250,
-                    pageToken: pageToken
-                }, function (err, response) {
-                    if (err) {
-                        console.log('The listGroupMembers API returned an error: ' + groupEmail + " " + err);
-                        return;
-                    }
-                    var members = response.members;
-                    if (!members || members.length === 0) {
-                        resolve(memberSet);
-                        return;
-                    }
-                    members.forEach(function (member) {
-                        if (member.type === "CUSTOMER") {
-                            memberSet.domainAccess = true;
+        function getLocalMembers(email) {
+            return new Promise(function (resolve, reject) {
+                var members = [];
+
+                function listGroupMembers(pageToken) {
+                    service.members.list({
+                        groupKey: email,
+                        auth: auth,
+                        fields: "nextPageToken, members",
+                        maxResults: 1,
+                        pageToken: pageToken
+                    }, function (err, response) {
+                        if (err) {
+                            reject('The groups API returned an error: ' + err);
+                            return;
                         }
-                        if (member.type === "GROUP") {
-                            memberSet.hasNested = true;
+
+                        response.members.forEach(function (member) {
+                            if (member.type === "CUSTOMER") {
+                                member.email = "domain";
+                            }
+                            member.email = member.email.toLowerCase();
+                            members.push(member);
+                        });
+
+                        if (response.members.length === 0 || response.nextPageToken === undefined) {
+                            members.forEach(function (member, index) {
+                                memberSet.directMembers.push(member);
+                                memberSet.directMembersIndex[member.email] = index;
+                                if (memberSet.allMembersIndex[member.email] === undefined) {
+                                    memberSet.allMembersIndex[member.email] = memberSet.allMembers.length;
+                                    memberSet.allMembers.push(member);
+                                }
+                                if (member.type === "CUSTOMER") {
+                                    memberSet.domainAccess = true;
+                                }
+                                if (member.type === "GROUP") {
+                                    memberSet.hasNested = true;
+                                }
+                            });
+                            resolve(memberSet);
+                            return;
                         }
-                        memberSet.members.push(member);
-                        if (returnJson) {
-                            memberSet.membersJson[member.email] = member;
-                        }
+                        listGroupMembers(response.nextPageToken);
                     });
-                    if (!response.nextPageToken) {
-                        resolve(memberSet);
-                        return;
-                    }
-                    listGroupMembers(response.nextPageToken);
+                }
+                listGroupMembers();
+            });
+        }
+
+        return new Promise(function (resolve, reject) {
+            function getNestedGroups(response) {
+                var nestedMembers = response.directMembers.filter(function (member) {
+                    return member.type === "GROUP";
+                });
+                nestedMembers.reduce(function (promise, item) {
+                    return promise
+                        .then(function () {
+                            return getGroupMembers({
+                                email: item.email
+                            }).then(function (result) {
+                                item.group = result;
+                                item.group.directMembers.forEach(function (member) {
+                                    if (memberSet.allMembersIndex[member.email] === undefined) {
+                                        memberSet.allMembersIndex[member.email] = memberSet.allMembers.length;
+                                        memberSet.allMembers.push(member);
+                                    }
+                                });
+                            });
+                        })
+                        .catch(console.error);
+                }, Promise.resolve()).then(function () {
+                    resolve(memberSet);
                 });
             }
-            listGroupMembers();
+
+            getLocalMembers(groupEmail)
+                .then(function (response) {
+                    if (response.hasNested) {
+                        getNestedGroups(response);
+                    } else {
+                        resolve(response);
+                    }
+                }).catch(function (err) {
+                    reject(err);
+                });
         });
     }
 
-    auth = specs.auth;
+    auth = mainSpecs.auth;
+   
     return {
         getGroups: getGroups,
         getGroupMembers: getGroupMembers
